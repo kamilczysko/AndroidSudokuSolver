@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">OPCVTest</string>
+    <string name="sudoku_solver_title">Sudoku Solver</string>
+</resources>
