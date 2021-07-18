@@ -159,7 +159,8 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
         mat = new Mat();
         Mat at;
 
-        inputImage = inputFrame.rgba();
+        inputImage = inputFrame.rgba(); //todo input image ma byc niezalezne
+        Mat ccc = inputImage.clone(); // zamiast ccc uzyc input image
         at = Mat.ones(inputImage.rows(), inputImage.cols(), inputImage.type());
         Imgproc.cvtColor(inputImage, mat, Imgproc.COLOR_RGB2GRAY);
         Imgproc.threshold(mat, mat, 120, 255, Imgproc.ADAPTIVE_THRESH_MEAN_C);
@@ -174,7 +175,7 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
             return sudoku;
         }
 
-        List<Rect> foundRects = findContours(mat, inputImage);
+        List<Rect> foundRects = findContours(mat, inputImage); // input image jest kolorowany, to zmienic
         foundRects.forEach(rect -> {
                     Mat submat = at.submat(rect).clone();
                     submat.setTo(new Scalar(255, 0, 0));
@@ -183,7 +184,7 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
         );
 
         lastScreen = inputFrame.gray().clone();
-        orig = inputImage.clone();
+        orig = ccc.clone();
         setProcessButtonInvisible();
         return inputImage;
     }
