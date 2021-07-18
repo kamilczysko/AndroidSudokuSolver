@@ -22,8 +22,8 @@
 
             <SeekBar
                 android:id="@+id/threshSlide"
-                android:layout_width="659dp"
-                android:layout_height="wrap_content"
+                android:layout_width="150dp"
+                android:layout_height="match_parent"
                 android:max="255" />
 
             <TextView
@@ -33,6 +33,13 @@
                 android:layout_marginLeft="10px"
                 android:layout_weight="1"
                 android:text="150" />
+
+            <Button
+                android:id="@+id/processButton"
+                android:layout_width="wrap_content"
+                android:layout_height="35dp"
+                android:layout_weight="1"
+                android:text="@string/process_button" />
 
         </LinearLayout>
 
