@@ -1,0 +1,4 @@
+#Sat Jul 10 22:09:00 CEST 2021
+base.0=/Users/kamil/AndroidStudioProjects/OPCVTest/java/build/intermediates/dex/debug/mergeDexDebug/classes.dex
+path.0=classes.dex
+renamed.0=classes.dex
