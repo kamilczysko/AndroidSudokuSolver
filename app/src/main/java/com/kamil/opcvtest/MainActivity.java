@@ -1,6 +1,5 @@
 package com.kamil.opcvtest;
 
-
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.os.Build;
@@ -10,9 +9,6 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
-import android.widget.Button;
-import android.widget.SeekBar;
-import android.widget.TextView;
 
 import androidx.annotation.RequiresApi;
 
@@ -21,7 +17,6 @@ import org.opencv.android.CameraBridgeViewBase;
 import org.opencv.android.LoaderCallbackInterface;
 import org.opencv.android.OpenCVLoader;
 import org.opencv.core.Core;
-import org.opencv.core.CvType;
 import org.opencv.core.Mat;
 import org.opencv.core.MatOfPoint;
 import org.opencv.core.Point;
@@ -32,7 +27,6 @@ import org.opencv.imgproc.Imgproc;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 
 
 public class MainActivity extends Activity implements CameraBridgeViewBase.CvCameraViewListener2, View.OnTouchListener {
@@ -44,18 +38,11 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
     }
 
     private CameraBridgeViewBase camera;
-    private SeekBar threshSlide;
-    private TextView threshValue;
-    private int threshVal = 3000;
     private List<Rect> foundRects = new ArrayList();
     private Rect selectedSudokuPlane = null;
     private boolean isSudokuPlaneSelected = false;
     private List<Rect> allCells;
     private Mat previousRawFrame;
-
-    private boolean triger = false;
-
-    private Button processButton;
 
     BaseLoaderCallback loader = new BaseLoaderCallback(this) {
         @Override
@@ -86,44 +73,8 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
         setContentView(R.layout.activity_main);
         OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION_3_0_0, this, loader);
 
-        processButton = findViewById(R.id.processButton);
-        processButton.setVisibility(View.INVISIBLE);
-
-        processButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                triger = !triger;
-            }
-        });
-
         camera = findViewById(R.id.sudoku_camera_view);
         camera.setCameraPermissionGranted();
-//
-        threshSlide = findViewById(R.id.threshSlide);
-        threshValue = findViewById(R.id.threshValue);
-        threshSlide.setMax(60000);
-
-        threshValue.setText(threshVal + " ");
-        threshSlide.setOnSeekBarChangeListener(
-                new SeekBar.OnSeekBarChangeListener() {
-                    @Override
-                    public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                        threshVal = progress;
-                        threshValue.setText(threshVal + "");
-                    }
-
-                    @Override
-                    public void onStartTrackingTouch(SeekBar seekBar) {
-
-                    }
-
-                    @Override
-                    public void onStopTrackingTouch(SeekBar seekBar) {
-
-                    }
-                }
-        );
-
     }
 
     @Override
@@ -161,7 +112,6 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
         Imgproc.threshold(cameraViewFrameToFirstProcess, cameraViewFrameToFirstProcess, 120, 255, Imgproc.ADAPTIVE_THRESH_MEAN_C);
 
         if (isSudokuPlaneSelected) {
-            setProcessButtonVisible();
             return findSingleCells(getSelectedSudokuPlane(previousRawFrame));
         }
 
@@ -192,39 +142,38 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
 
     @RequiresApi(api = Build.VERSION_CODES.N)
     private Mat findSingleCells(Mat sudokuPlane) {
-        Mat sudokuToProcess = sudokuPlane.clone();
-        Mat res = new Mat();
-        allCells = new ArrayList<>();
-        Imgproc.cvtColor(sudokuToProcess, sudokuToProcess, Imgproc.COLOR_RGB2GRAY);
-        Imgproc.blur(sudokuToProcess, res, new Size(5, 5), new Point(), 0);
-        Imgproc.adaptiveThreshold(res, res, 255, Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C, Imgproc.THRESH_BINARY, 5, 2);
-        Core.bitwise_not(res, res);
-        Imgproc.dilate(res, res, Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(5, 5)), new Point(), 11);
-        if (triger)
-            return res;
-        List<MatOfPoint> contours = new ArrayList<MatOfPoint>();
-        Imgproc.findContours(res, contours, new Mat(), Imgproc.RETR_TREE, Imgproc.CHAIN_APPROX_SIMPLE);
-        Mat m = new Mat(sudokuToProcess.rows(), sudokuToProcess.cols(), CvType.CV_16F);
-        sudokuPlane.copyTo(m);
+        allCells = findCellsContoursFromSudokuPlane(sudokuPlane);
+        Mat resultMat = sudokuPlane.clone();
         int c = 0;
+        for (Rect rect : allCells) {
+            Imgproc.rectangle(resultMat, new Point(rect.x, rect.y), new Point(rect.x + rect.width, rect.y + rect.height), new Scalar(0, 0, 255), 15);
+//                    Imgproc.circle(resultMat, new Point(rect.x + rect.width / 2, rect.y + rect.height / 2), 3, new Scalar(0, 255, 255), 15);
+            Imgproc.putText(resultMat, (c) + "", new Point(rect.x + rect.width / 2, rect.y + rect.height / 2), 1, 2, new Scalar(255, 0, 0), 15);
+            c++;
+        }
+        return resultMat;
+    }
+
+    private List<Rect> findCellsContoursFromSudokuPlane(Mat sudokuPlane) {
+        List<Rect> rects = new ArrayList<>();
+        Mat matToFindContours = new Mat();
+        Imgproc.cvtColor(sudokuPlane.clone(), matToFindContours, Imgproc.COLOR_RGB2GRAY);
+        Imgproc.blur(matToFindContours, matToFindContours, new Size(5, 5), new Point(), 0);
+        Imgproc.adaptiveThreshold(matToFindContours, matToFindContours, 255, Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C, Imgproc.THRESH_BINARY, 5, 2);
+        Core.bitwise_not(matToFindContours, matToFindContours);
+        Imgproc.dilate(matToFindContours, matToFindContours, Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(5, 5)), new Point(), 11);
+
+        List<MatOfPoint> contours = new ArrayList<MatOfPoint>();
+        Imgproc.findContours(matToFindContours, contours, new Mat(), Imgproc.RETR_TREE, Imgproc.CHAIN_APPROX_SIMPLE);
         for (MatOfPoint contour : contours) {
             if (Imgproc.contourArea(contour) > 2600 && Imgproc.contourArea(contour) < 40000) {
                 Rect rect = Imgproc.boundingRect(contour);
                 if (Math.abs(rect.height - rect.width) < 100) {
-                    allCells.add(rect);
+                    rects.add(rect);
                 }
             }
         }
-        List<Rect> rects = allCells.stream()
-//                .sorted(Comparator.comparingInt(Rect::getY).thenComparing(Rect::getX))
-                .collect(Collectors.toList());
-        for (Rect rect : rects) {
-            Imgproc.rectangle(m, new Point(rect.x, rect.y), new Point(rect.x + rect.width, rect.y + rect.height), new Scalar(0, 0, 255), 15);
-//                    Imgproc.circle(m, new Point(rect.x + rect.width / 2, rect.y + rect.height / 2), 3, new Scalar(0, 255, 255), 15);
-            Imgproc.putText(m, (c) + "", new Point(rect.x + rect.width / 2, rect.y + rect.height / 2), 1, 2, new Scalar(255, 0, 0), 15);
-            c++;
-        }
-        return m;
+        return rects;
     }
 
     private List<Rect> findSudokuPlanesContours(Mat input, Mat img) {
@@ -247,15 +196,6 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
         }
         return foundRects;
     }
-
-    private void setProcessButtonVisible() {
-        this.runOnUiThread(() -> processButton.setVisibility(View.VISIBLE));
-    }
-
-    private void setProcessButtonInvisible() {
-        this.runOnUiThread(() -> processButton.setVisibility(View.INVISIBLE));
-    }
-
 
     @RequiresApi(api = Build.VERSION_CODES.N)
     @Override
