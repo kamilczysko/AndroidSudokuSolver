@@ -47,19 +47,15 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
     private SeekBar threshSlide;
     private TextView threshValue;
     private int threshVal = 3000;
-    List<Rect> foundRects = new ArrayList();
-    Mat originalRawInputImage;
-    Rect selectedSudokuPlane = null;
-    boolean isSudokuPlaneSelected = false;
-    Mat mat;
-    Mat previousFrame;
-    Mat previousFrameFromProcessedImage;
+    private List<Rect> foundRects = new ArrayList();
+    private Rect selectedSudokuPlane = null;
+    private boolean isSudokuPlaneSelected = false;
+    private List<Rect> allCells;
+    private Mat previousRawFrame;
 
-    Mat sudoku;
+    private boolean triger = false;
 
-    boolean triger = false;
-
-    Button processButton;
+    private Button processButton;
 
     BaseLoaderCallback loader = new BaseLoaderCallback(this) {
         @Override
@@ -154,45 +150,37 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
 
     }
 
-    Mat processedImage;
-    List<Rect> allCells;
-    Mat previousRawFrame;
-
     @SuppressLint("NewApi")
     @Override
     public Mat onCameraFrame(CameraBridgeViewBase.CvCameraViewFrame inputFrame) {
-        mat = new Mat();
-        processedImage = new Mat();
-
-        originalRawInputImage = inputFrame.rgba();
+        Mat originalRawInputImage = inputFrame.rgba();
         Mat tmpRawFrame = originalRawInputImage.clone();
-        processedImage = originalRawInputImage.clone();
+        Mat cameraViewFrameToFirstProcess = originalRawInputImage.clone();
 
-        Imgproc.cvtColor(processedImage, processedImage, Imgproc.COLOR_RGB2GRAY);
-        Imgproc.threshold(processedImage, processedImage, 120, 255, Imgproc.ADAPTIVE_THRESH_MEAN_C);
+        Imgproc.cvtColor(cameraViewFrameToFirstProcess, cameraViewFrameToFirstProcess, Imgproc.COLOR_RGB2GRAY);
+        Imgproc.threshold(cameraViewFrameToFirstProcess, cameraViewFrameToFirstProcess, 120, 255, Imgproc.ADAPTIVE_THRESH_MEAN_C);
 
         if (isSudokuPlaneSelected) {
-            Mat processedSubmat = previousFrame.submat(selectedSudokuPlane).clone();
-            Mat originalSubmat = previousRawFrame.submat(selectedSudokuPlane).clone();
-
-            Imgproc.resize(processedSubmat, processedSubmat, processedImage.size(), 0, 0);
-            Imgproc.resize(originalSubmat, originalSubmat, processedImage.size(), 0, 0);
-
             setProcessButtonVisible();
-            return findSingleCells(processedSubmat, originalSubmat);
+            return findSingleCells(getSelectedSudokuPlane(previousRawFrame));
         }
 
-        findSudokuPlanesContours(processedImage, tmpRawFrame)
+        findSudokuPlanesContours(cameraViewFrameToFirstProcess, tmpRawFrame)
                 .forEach(sudokuPlaneBoudary ->
                         getColorMaskForSingleSudokuPlane(sudokuPlaneBoudary, tmpRawFrame));
 
-        previousFrame = inputFrame.gray().clone();
-        previousFrameFromProcessedImage = processedImage.clone();
         previousRawFrame  = originalRawInputImage.clone();
-
-        setProcessButtonInvisible();
-
         return tmpRawFrame;
+    }
+
+    private Mat getSelectedSudokuPlane(Mat frameToSubstract) {
+        Mat originalSubmat = frameToSubstract.submat(selectedSudokuPlane).clone();
+        Imgproc.resize(originalSubmat, originalSubmat, getFrameSize(), 0, 0);
+        return originalSubmat;
+    }
+
+    private Size getFrameSize() {
+        return previousRawFrame.size();
     }
 
     private void getColorMaskForSingleSudokuPlane(Rect sudokuPlaneBoudary, Mat frame) {
@@ -202,13 +190,13 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
         submat.copyTo(frame.submat(sudokuPlaneBoudary), submat.clone());
     }
 
-
-
     @RequiresApi(api = Build.VERSION_CODES.N)
-    private Mat findSingleCells(Mat sudoku, Mat original) {
+    private Mat findSingleCells(Mat sudokuPlane) {
+        Mat sudokuToProcess = sudokuPlane.clone();
         Mat res = new Mat();
         allCells = new ArrayList<>();
-        Imgproc.blur(sudoku, res, new Size(5, 5), new Point(), 0);
+        Imgproc.cvtColor(sudokuToProcess, sudokuToProcess, Imgproc.COLOR_RGB2GRAY);
+        Imgproc.blur(sudokuToProcess, res, new Size(5, 5), new Point(), 0);
         Imgproc.adaptiveThreshold(res, res, 255, Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C, Imgproc.THRESH_BINARY, 5, 2);
         Core.bitwise_not(res, res);
         Imgproc.dilate(res, res, Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(5, 5)), new Point(), 11);
@@ -216,8 +204,8 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
             return res;
         List<MatOfPoint> contours = new ArrayList<MatOfPoint>();
         Imgproc.findContours(res, contours, new Mat(), Imgproc.RETR_TREE, Imgproc.CHAIN_APPROX_SIMPLE);
-        Mat m = new Mat(sudoku.rows(), sudoku.cols(), CvType.CV_16F);
-        original.copyTo(m);
+        Mat m = new Mat(sudokuToProcess.rows(), sudokuToProcess.cols(), CvType.CV_16F);
+        sudokuPlane.copyTo(m);
         int c = 0;
         for (MatOfPoint contour : contours) {
             if (Imgproc.contourArea(contour) > 2600 && Imgproc.contourArea(contour) < 40000) {
@@ -272,8 +260,8 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
     @RequiresApi(api = Build.VERSION_CODES.N)
     @Override
     public boolean onTouch(View v, MotionEvent event) {
-        int cols = originalRawInputImage.cols();
-        int rows = originalRawInputImage.rows();
+        int cols = previousRawFrame.cols();
+        int rows = previousRawFrame.rows();
 
         int xOffset = (camera.getWidth() - cols) / 2;
         int yOffset = (camera.getHeight() - rows) / 2;
