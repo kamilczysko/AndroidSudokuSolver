@@ -9,6 +9,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
+import android.widget.Toast;
 
 import androidx.annotation.RequiresApi;
 
@@ -25,6 +26,10 @@ import org.opencv.core.Scalar;
 import org.opencv.core.Size;
 import org.opencv.imgproc.Imgproc;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -32,6 +37,7 @@ import java.util.List;
 public class MainActivity extends Activity implements CameraBridgeViewBase.CvCameraViewListener2, View.OnTouchListener {
 
     private static final String TAG = "MainActivity";
+    public static final double PERCENTAGE_OF_WHITE = 0.88;
 
     public MainActivity() {
         Log.i(TAG, "Instantiated new " + this.getClass());
@@ -77,6 +83,35 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
         camera.setCameraPermissionGranted();
     }
 
+    private void prepareTessData() { // sprawdzic kopiowanie pliku
+        try {
+            File dir = getExternalFilesDir("tessdata/");
+            if (!dir.exists()) {
+                if (!dir.mkdir()) {
+                    Toast.makeText(getApplicationContext(), "The folder " + dir.getPath() + "was not created", Toast.LENGTH_SHORT).show();
+                }
+            }
+            String fileList[] = getAssets().list("tessdata");
+
+            for (String fileName : fileList) {
+                String pathToDataFile = dir + "/" + fileName;
+                if (!(new File(pathToDataFile)).exists()) {
+                    InputStream in = getAssets().open("tessdata/" + fileName);
+                    OutputStream out = new FileOutputStream(pathToDataFile);
+                    byte[] buff = new byte[1024];
+                    int len;
+                    while ((len = in.read(buff)) > 0) {
+                        out.write(buff, 0, len);
+                    }
+                    in.close();
+                    out.close();
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, e.getMessage());
+        }
+    }
+
     @Override
     public void onPause() {
         super.onPause();
@@ -101,6 +136,7 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
 
     }
 
+    boolean doitagain = true;
     @SuppressLint("NewApi")
     @Override
     public Mat onCameraFrame(CameraBridgeViewBase.CvCameraViewFrame inputFrame) {
@@ -109,17 +145,38 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
         Mat cameraViewFrameToFirstProcess = originalRawInputImage.clone();
 
         Imgproc.cvtColor(cameraViewFrameToFirstProcess, cameraViewFrameToFirstProcess, Imgproc.COLOR_RGB2GRAY);
-        Imgproc.threshold(cameraViewFrameToFirstProcess, cameraViewFrameToFirstProcess, 120, 255, Imgproc.ADAPTIVE_THRESH_MEAN_C);
+        Imgproc.threshold(cameraViewFrameToFirstProcess, cameraViewFrameToFirstProcess, 120, 255, Imgproc.THRESH_BINARY);
 
         if (isSudokuPlaneSelected) {
-            return findSingleCells(getSelectedSudokuPlane(previousRawFrame));
+            Mat highlightedCells = findSingleCells(getSelectedSudokuPlane(previousRawFrame), getSelectedSudokuPlane(previousRawFrame.clone()));
+            int a = 0;
+            if (doitagain) {
+                Log.d(TAG, "START");
+                Mat selectedSudokuPlaneToProcess = getSelectedSudokuPlane(previousRawFrame.clone());
+                Imgproc.cvtColor(selectedSudokuPlaneToProcess, selectedSudokuPlaneToProcess, Imgproc.COLOR_RGB2GRAY);
+                Imgproc.threshold(selectedSudokuPlaneToProcess, selectedSudokuPlaneToProcess, 120, 255, Imgproc.THRESH_BINARY);
+                for (Rect cell : allCells) {
+                    Mat submat = selectedSudokuPlaneToProcess.submat(cell);
+                    int nonZero = Core.countNonZero(submat);
+                    long totalSize = submat.total();
+                    double coef = (double) nonZero / (double) totalSize;
+                    if (coef < PERCENTAGE_OF_WHITE) {
+                        Log.d(TAG, nonZero + "-" + totalSize + " - " + coef);
+                        a++;
+                    }
+                }
+                Log.d(TAG, "--------"+a);
+
+                doitagain = false;
+            }
+            return highlightedCells;
         }
 
         findSudokuPlanesContours(cameraViewFrameToFirstProcess, tmpRawFrame)
                 .forEach(sudokuPlaneBoudary ->
                         getColorMaskForSingleSudokuPlane(sudokuPlaneBoudary, tmpRawFrame));
 
-        previousRawFrame  = originalRawInputImage.clone();
+        previousRawFrame = originalRawInputImage.clone();
         return tmpRawFrame;
     }
 
@@ -151,7 +208,36 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
             Imgproc.putText(resultMat, (c) + "", new Point(rect.x + rect.width / 2, rect.y + rect.height / 2), 1, 2, new Scalar(255, 0, 0), 15);
             c++;
         }
+
         return resultMat;
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.N)
+    private Mat findSingleCells(Mat sudokuPlane, Mat canvas) {
+
+        Imgproc.cvtColor(canvas, canvas, Imgproc.COLOR_RGB2GRAY);
+        Imgproc.threshold(canvas, canvas, 120, 255, Imgproc.THRESH_BINARY);
+
+        allCells = findCellsContoursFromSudokuPlane(sudokuPlane);
+        Mat resultMat = sudokuPlane.clone();
+        int c = 0;
+        for (Rect rect : allCells) {
+            Mat submat = canvas.submat(rect);
+            int nonZero = Core.countNonZero(submat);
+            long totalSize = submat.total();
+            double percentage = (double) nonZero / (double) totalSize;
+//            Log.d(TAG, nonZero + "-" + totalSize + " - " + new Double(percentage));
+
+            Imgproc.rectangle(canvas, new Point(rect.x, rect.y), new Point(rect.x + rect.width, rect.y + rect.height), new Scalar(0, 0, 255), 15);
+//                    Imgproc.circle(resultMat, new Point(rect.x + rect.width / 2, rect.y + rect.height / 2), 3, new Scalar(0, 255, 255), 15);
+//            Imgproc.putText(canvas, (String.format("%.2f", percentage)) +"", new Point(rect.x + rect.width / 2.5, rect.y + rect.height / 2), 1, 1, new Scalar(0, 0, 0), 5);
+            if(percentage < PERCENTAGE_OF_WHITE) {
+                c++;
+                Imgproc.putText(canvas, c +"-"+(String.format("%.2f", percentage)) , new Point(rect.x + rect.width / 11.0, rect.y + rect.height / 4.0), 1, 1, new Scalar(0, 0, 0), 5);
+            }
+        }
+
+        return canvas;
     }
 
     private List<Rect> findCellsContoursFromSudokuPlane(Mat sudokuPlane) {
@@ -210,7 +296,7 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
         int y = (int) event.getY() - yOffset;
 
         selectedSudokuPlane = getSelectedSudoku(x, y);
-
+        doitagain = true;
         isSudokuPlaneSelected = selectedSudokuPlane != null;
 
         return false;
