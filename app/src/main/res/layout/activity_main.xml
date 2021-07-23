@@ -20,26 +20,12 @@
             android:layout_height="34dp"
             android:orientation="horizontal">
 
-            <SeekBar
-                android:id="@+id/threshSlide"
-                android:layout_width="150dp"
-                android:layout_height="match_parent"
-                android:max="255" />
-
-            <TextView
-                android:id="@+id/threshValue"
-                android:layout_width="61dp"
-                android:layout_height="wrap_content"
-                android:layout_marginLeft="10px"
-                android:layout_weight="1"
-                android:text="150" />
-
             <Button
-                android:id="@+id/processButton"
+                android:id="@+id/debugView"
                 android:layout_width="wrap_content"
                 android:layout_height="35dp"
                 android:layout_weight="1"
-                android:text="@string/process_button" />
+                android:text="@string/debug_button_label" />
 
         </LinearLayout>
 
