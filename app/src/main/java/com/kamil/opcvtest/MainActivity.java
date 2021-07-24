@@ -169,11 +169,12 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
             } else {
                 highlightedCells = findSingleCells(getSelectedSudokuPlane(previousRawFrame));
             }
-            int a = 0;
-            if (doitagain) {
-                filterEmptyCells(a);
-                doitagain = false;
-            }
+//            int a = 0;
+//            if (doitagain) {
+//                filterEmptyCells(a);
+//                doitagain = false;
+//            }
+
             return highlightedCells;
         }
 
@@ -203,6 +204,14 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
         Log.d(TAG, "--------"+a);
     }
 
+    private boolean isEmpty(Mat selectedSudokuPlaneToProcess, Rect cell) {
+        Mat submat = selectedSudokuPlaneToProcess.submat(cell);
+        int nonZero = Core.countNonZero(submat);
+        long totalSize = submat.total();
+        double coef = (double) nonZero / (double) totalSize;
+        return coef > PERCENTAGE_OF_WHITE;
+    }
+
     private Mat getSelectedSudokuPlane(Mat frameToSubstract) {
         Mat originalSubmat = frameToSubstract.submat(selectedSudokuPlane).clone();
         Imgproc.resize(originalSubmat, originalSubmat, getFrameSize(), 0, 0);
@@ -227,24 +236,45 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
         int c = 0;
 
         List<List<Rect>> sortedRects = getSortedRects();
+        List<List<Integer>> digitalMap = getDigitalMap(sortedRects);
+        printDigitalMap(digitalMap);
 
         for(List<Rect> row : sortedRects){
             for(Rect rect : row){
                 Imgproc.rectangle(resultMat, new Point(rect.x, rect.y), new Point(rect.x + rect.width, rect.y + rect.height), new Scalar(0, 0, 255), 15);
-//                    Imgproc.circle(resultMat, new Point(rect.x + rect.width / 2, rect.y + rect.height / 2), 3, new Scalar(0, 255, 255), 15);
-                Imgproc.putText(resultMat, (c) + "", new Point(rect.x + rect.width / 2, rect.y + rect.height / 2), 1, 2, new Scalar(255, 0, 0), 15);
+                Imgproc.putText(resultMat, (c) + "", new Point(rect.x + rect.width / 11.0, rect.y + rect.height / 3.0), 1, 1, new Scalar(255, 0, 255), 15);
                 c++;
             }
         }
-
-//        for (Rect rect : allCells) {
-//            Imgproc.rectangle(resultMat, new Point(rect.x, rect.y), new Point(rect.x + rect.width, rect.y + rect.height), new Scalar(0, 0, 255), 15);
-////                    Imgproc.circle(resultMat, new Point(rect.x + rect.width / 2, rect.y + rect.height / 2), 3, new Scalar(0, 255, 255), 15);
-//            Imgproc.putText(resultMat, (c) + "", new Point(rect.x + rect.width / 2, rect.y + rect.height / 2), 1, 2, new Scalar(255, 0, 0), 15);
-//            c++;
-//        }
-
         return resultMat;
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.N)
+    private void printDigitalMap(List<List<Integer>> map){
+        String r = "";
+        for(List<Integer> row: map){
+             r += row.stream().map(Object::toString).collect(Collectors.joining("-"));
+             r += "\n";
+        }
+            Log.d(TAG, r);
+    }
+
+    private List<List<Integer>> getDigitalMap(List<List<Rect>> mapOfRects) {
+        Mat map = getSelectedSudokuPlane(previousRawFrame.clone()).clone();
+        Imgproc.cvtColor(map, map, Imgproc.COLOR_RGB2GRAY);
+        Imgproc.threshold(map, map, 120, 255, Imgproc.THRESH_BINARY);
+        List<List<Integer>> digitalMap = new ArrayList<>();
+        for (List<Rect> row : mapOfRects) {
+            ArrayList<Integer> singleRow = new ArrayList<>();
+            for (Rect rect : row) {
+                if(isEmpty(map, rect))
+                    singleRow.add(0);
+                else
+                    singleRow.add(1);
+            }
+            digitalMap.add(singleRow);
+        }
+        return digitalMap;
     }
 
     @RequiresApi(api = Build.VERSION_CODES.N)
