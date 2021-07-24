@@ -54,6 +54,7 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
     private boolean isSudokuPlaneSelected = false;
     private List<Rect> allCells;
     private Mat previousRawFrame;
+    private ImageProcessor imgProc;
 
     BaseLoaderCallback loader = new BaseLoaderCallback(this) {
         @Override
@@ -89,42 +90,9 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
         camera.setCameraPermissionGranted();
 
         button = findViewById(R.id.debugView);
-        button.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                debugView = !debugView;
-            }
-        });
-    }
+        button.setOnClickListener(v -> debugView = !debugView);
 
-
-    private void prepareTessData() { // sprawdzic kopiowanie pliku
-        try {
-            File dir = getExternalFilesDir("tessdata/");
-            if (!dir.exists()) {
-                if (!dir.mkdir()) {
-                    Toast.makeText(getApplicationContext(), "The folder " + dir.getPath() + "was not created", Toast.LENGTH_SHORT).show();
-                }
-            }
-            String fileList[] = getAssets().list("tessdata");
-
-            for (String fileName : fileList) {
-                String pathToDataFile = dir + "/" + fileName;
-                if (!(new File(pathToDataFile)).exists()) {
-                    InputStream in = getAssets().open("tessdata/" + fileName);
-                    OutputStream out = new FileOutputStream(pathToDataFile);
-                    byte[] buff = new byte[1024];
-                    int len;
-                    while ((len = in.read(buff)) > 0) {
-                        out.write(buff, 0, len);
-                    }
-                    in.close();
-                    out.close();
-                }
-            }
-        } catch (Exception e) {
-            Log.e(TAG, e.getMessage());
-        }
+        this.imgProc = new ImageProcessor(this);
     }
 
     @Override
