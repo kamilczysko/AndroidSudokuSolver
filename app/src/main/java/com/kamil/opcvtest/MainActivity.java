@@ -10,7 +10,6 @@ import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 import android.widget.Button;
-import android.widget.Toast;
 
 import androidx.annotation.RequiresApi;
 
@@ -27,11 +26,8 @@ import org.opencv.core.Scalar;
 import org.opencv.core.Size;
 import org.opencv.imgproc.Imgproc;
 
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.InputStream;
-import java.io.OutputStream;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -40,9 +36,13 @@ import java.util.stream.Collectors;
 public class MainActivity extends Activity implements CameraBridgeViewBase.CvCameraViewListener2, View.OnTouchListener {
 
     private static final String TAG = "MainActivity";
-    public static final double PERCENTAGE_OF_WHITE = 0.88;
+    public static final double PERCENTAGE_OF_WHITE = 0.89;
+    public static final double SUBMAT_RESIZE_FACTOR = 0.07;
 
-    private Button button;
+    private Button debugViewButton;
+    private Button processButton;
+
+    List<List<Rect>> sortedRects = Collections.emptyList();
 
     public MainActivity() {
         Log.i(TAG, "Instantiated new " + this.getClass());
@@ -77,6 +77,7 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
     };
 
     boolean debugView = false;
+    @RequiresApi(api = Build.VERSION_CODES.N)
     @Override
     public void onCreate(Bundle savedInstanceState) {
         Log.i(TAG, "called onCreate");
@@ -89,8 +90,14 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
         camera = findViewById(R.id.sudoku_camera_view);
         camera.setCameraPermissionGranted();
 
-        button = findViewById(R.id.debugView);
-        button.setOnClickListener(v -> debugView = !debugView);
+        debugViewButton = findViewById(R.id.debugView);
+        debugViewButton.setOnClickListener(v -> debugView = !debugView);
+
+        processButton = findViewById(R.id.processButton);
+        processButton.setOnClickListener(v -> {
+            List<List<Integer>> digitalMap = getDigitalMap(sortedRects);
+            printDigitalMap(digitalMap);
+        });
 
         this.imgProc = new ImageProcessor(this);
     }
@@ -137,11 +144,6 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
             } else {
                 highlightedCells = findSingleCells(getSelectedSudokuPlane(previousRawFrame));
             }
-//            int a = 0;
-//            if (doitagain) {
-//                filterEmptyCells(a);
-//                doitagain = false;
-//            }
 
             return highlightedCells;
         }
@@ -173,11 +175,23 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
     }
 
     private boolean isEmpty(Mat selectedSudokuPlaneToProcess, Rect cell) {
-        Mat submat = selectedSudokuPlaneToProcess.submat(cell);
-        int nonZero = Core.countNonZero(submat);
-        long totalSize = submat.total();
+        Mat mat = getResizedMat(selectedSudokuPlaneToProcess.submat(cell), 0.005);
+        int nonZero = Core.countNonZero(mat);
+        long totalSize = mat.total();
         double coef = (double) nonZero / (double) totalSize;
         return coef > PERCENTAGE_OF_WHITE;
+    }
+
+    private Mat getResizedMat(Mat submat, double resizeFactor) {
+        int rowOffset = (int) (submat.rows() * resizeFactor);
+        int colOffset = (int) (submat.cols() * resizeFactor);
+        return submat.submat(rowOffset, submat.rows() - rowOffset * 2, colOffset, submat.cols() - colOffset * 2);
+    }
+
+    private Mat getResizedMat(Mat submat) {
+        int rowOffset = (int) (submat.rows() * SUBMAT_RESIZE_FACTOR);
+        int colOffset = (int) (submat.cols() * SUBMAT_RESIZE_FACTOR);
+        return submat.submat(rowOffset, submat.rows() - rowOffset * 2, colOffset, submat.cols() - colOffset * 2);
     }
 
     private Mat getSelectedSudokuPlane(Mat frameToSubstract) {
@@ -203,9 +217,7 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
         Mat resultMat = sudokuPlane.clone();
         int c = 0;
 
-        List<List<Rect>> sortedRects = getSortedRects();
-        List<List<Integer>> digitalMap = getDigitalMap(sortedRects);
-        printDigitalMap(digitalMap);
+        sortedRects = getSortedRects();
 
         for(List<Rect> row : sortedRects){
             for(Rect rect : row){
@@ -228,8 +240,9 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
     }
 
     private List<List<Integer>> getDigitalMap(List<List<Rect>> mapOfRects) {
-        Mat map = getSelectedSudokuPlane(previousRawFrame.clone()).clone();
-        Imgproc.cvtColor(map, map, Imgproc.COLOR_RGB2GRAY);
+        Mat map = new Mat();
+        Mat original = getSelectedSudokuPlane(previousRawFrame.clone()).clone();
+        Imgproc.cvtColor(original, map, Imgproc.COLOR_RGB2GRAY);
         Imgproc.threshold(map, map, 120, 255, Imgproc.THRESH_BINARY);
         List<List<Integer>> digitalMap = new ArrayList<>();
         for (List<Rect> row : mapOfRects) {
@@ -237,8 +250,10 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
             for (Rect rect : row) {
                 if(isEmpty(map, rect))
                     singleRow.add(0);
-                else
-                    singleRow.add(1);
+                else {
+                    Mat resizedMat = getResizedMat(original.submat(rect));
+                    singleRow.add(imgProc.getNumberFromRegion(resizedMat.clone()));
+                }
             }
             digitalMap.add(singleRow);
         }
@@ -267,13 +282,9 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
         Imgproc.threshold(canvas, canvas, 120, 255, Imgproc.THRESH_BINARY);
 
         allCells = findCellsContoursFromSudokuPlane(sudokuPlane);
-//        Mat resultMat = sudokuPlane.clone();
         for (Rect rect : allCells) {
             setCellActive(canvas, rect);
         }
-//        if(debugView)
-//            resultMat = canvas;
-
         return canvas;
     }
 
@@ -282,7 +293,6 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
         int nonZero = Core.countNonZero(submat);
         long totalSize = submat.total();
         double percentage = (double) nonZero / (double) totalSize;
-//            Log.d(TAG, nonZero + "-" + totalSize + " - " + new Double(percentage));
 
         Imgproc.rectangle(threshedCanvas, new Point(rect.x, rect.y), new Point(rect.x + rect.width, rect.y + rect.height), new Scalar(0, 0, 255), 15);
         if(percentage < PERCENTAGE_OF_WHITE) {

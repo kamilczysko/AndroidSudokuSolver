@@ -27,6 +27,13 @@
                 android:layout_weight="1"
                 android:text="@string/debug_button_label" />
 
+            <Button
+                android:id="@+id/processButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/process_button" />
+
         </LinearLayout>
 
         <org.opencv.android.JavaCameraView

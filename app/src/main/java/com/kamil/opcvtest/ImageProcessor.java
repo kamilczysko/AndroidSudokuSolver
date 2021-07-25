@@ -1,24 +1,22 @@
 package com.kamil.opcvtest;
 
 import android.content.Context;
-import android.content.res.AssetManager;
 import android.graphics.Bitmap;
-import android.os.Environment;
 import android.util.Log;
 
 import com.googlecode.tesseract.android.TessBaseAPI;
+
+import org.opencv.android.Utils;
+import org.opencv.core.Mat;
 
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
-
-import static com.googlecode.tesseract.android.TessBaseAPI.PageSegMode.PSM_AUTO;
 
 public class ImageProcessor {
 
-    private final TessBaseAPI tess;
+    private TessBaseAPI tess;
     private Context context;
 
     public ImageProcessor(Context context) {
@@ -48,14 +46,36 @@ public class ImageProcessor {
             }
         }
 
+//        tess = new TessBaseAPI();
+//        String path = context.getExternalFilesDir("/").getPath() + "/";
+//        tess.setDebug(false);
+//
+//        tess.init(path, "eng");
+//        String whitelist = "0123456789";
+//        tess.setVariable(TessBaseAPI.VAR_CHAR_WHITELIST, whitelist);
+//        tess.setPageSegMode(PSM_AUTO);
+    }
+
+    public int getNumberFromRegion(Mat mat){
         tess = new TessBaseAPI();
         String path = context.getExternalFilesDir("/").getPath() + "/";
-        tess.setDebug(true);
+        tess.setDebug(false);
 
         tess.init(path, "eng");
         String whitelist = "0123456789";
         tess.setVariable(TessBaseAPI.VAR_CHAR_WHITELIST, whitelist);
-        tess.setPageSegMode(PSM_AUTO);
+//        tess.setPageSegMode(PSM_AUTO);
+        Bitmap bmp = Bitmap.createBitmap(mat.cols(), mat.rows(), Bitmap.Config.ARGB_8888);
+        Utils.matToBitmap(mat, bmp);
+        return getNumber(bmp);
+    }
 
+    private int getNumber(Bitmap bmp){
+        tess.setImage(bmp);
+        String utf8Text = tess.getUTF8Text();
+        Log.d("defg", "defg -- "+utf8Text);
+        tess.end();
+        if(utf8Text.trim().equals("")) return 1;//not recognize ones :/
+        return Integer.parseInt(utf8Text);
     }
 }
