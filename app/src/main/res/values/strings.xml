@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">OPCVTest</string>
+    <string name="app_name">Sudoku Solver!</string>
     <string name="sudoku_solver_title">Sudoku Solver</string>
     <string name="process_button">Process!</string>
     <string name="debug_button_label">Debug View</string>

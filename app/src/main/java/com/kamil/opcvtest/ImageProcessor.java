@@ -61,7 +61,7 @@ public class ImageProcessor {
         tess.setImage(bmp);
         String utf8Text = tess.getUTF8Text();
         tess.end();
-        if(utf8Text.trim().equals("")) return 0; //not recognize eights :/
+        if(utf8Text.trim().equals("")) return 8; //not recognize eights :/
         return Integer.parseInt(utf8Text.trim().substring(utf8Text.length()-1));
     }
 }

@@ -62,7 +62,11 @@ public class SudokuActivity extends Activity {
                     textView.setText("*");
                 } else {
                     textView.setText(number.toString());
-                    textView.setTextColor(Color.RED);
+                    if (number == 8) {
+                        textView.setTextColor(Color.BLUE);
+                    } else {
+                        textView.setTextColor(Color.RED);
+                    }
 
                 }
                 textView.setTextSize(18);
