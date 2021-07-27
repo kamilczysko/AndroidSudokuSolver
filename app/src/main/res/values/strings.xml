@@ -3,4 +3,5 @@
     <string name="sudoku_solver_title">Sudoku Solver</string>
     <string name="process_button">Process!</string>
     <string name="debug_button_label">Debug View</string>
+    <string name="solve_button">Solve!</string>
 </resources>

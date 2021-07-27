@@ -45,15 +45,6 @@ public class ImageProcessor {
                 e.printStackTrace();
             }
         }
-
-//        tess = new TessBaseAPI();
-//        String path = context.getExternalFilesDir("/").getPath() + "/";
-//        tess.setDebug(false);
-//
-//        tess.init(path, "eng");
-//        String whitelist = "0123456789";
-//        tess.setVariable(TessBaseAPI.VAR_CHAR_WHITELIST, whitelist);
-//        tess.setPageSegMode(PSM_AUTO);
     }
 
     public int getNumberFromRegion(Mat mat){
@@ -64,7 +55,6 @@ public class ImageProcessor {
         tess.init(path, "eng");
         String whitelist = "0123456789";
         tess.setVariable(TessBaseAPI.VAR_CHAR_WHITELIST, whitelist);
-//        tess.setPageSegMode(PSM_AUTO);
         Bitmap bmp = Bitmap.createBitmap(mat.cols(), mat.rows(), Bitmap.Config.ARGB_8888);
         Utils.matToBitmap(mat, bmp);
         return getNumber(bmp);
@@ -75,7 +65,7 @@ public class ImageProcessor {
         String utf8Text = tess.getUTF8Text();
         Log.d("defg", "defg -- "+utf8Text);
         tess.end();
-        if(utf8Text.trim().equals("")) return 1;//not recognize ones :/
-        return Integer.parseInt(utf8Text);
+        if(utf8Text.trim().equals("")) return 0; //not recognize ones :/
+        return Integer.parseInt(utf8Text.trim().substring(utf8Text.length()-1));
     }
 }

@@ -2,8 +2,11 @@ package com.kamil.opcvtest;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.content.Intent;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Parcel;
+import android.os.Parcelable;
 import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
@@ -25,6 +28,7 @@ import org.opencv.core.Rect;
 import org.opencv.core.Scalar;
 import org.opencv.core.Size;
 import org.opencv.imgproc.Imgproc;
+import org.parceler.Parcels;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -97,6 +101,12 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
         processButton.setOnClickListener(v -> {
             List<List<Integer>> digitalMap = getDigitalMap(sortedRects);
             printDigitalMap(digitalMap);
+            Intent sudokuIntent = new Intent(this, SudokuActivity.class);
+
+            Parcelable wrap = Parcels.wrap(digitalMap);
+            sudokuIntent.putExtra("sudoku", wrap);
+
+            startActivity(sudokuIntent);
         });
 
         this.imgProc = new ImageProcessor(this);
