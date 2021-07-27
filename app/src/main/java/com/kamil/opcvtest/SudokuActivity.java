@@ -63,6 +63,7 @@ public class SudokuActivity extends Activity {
                 } else {
                     textView.setText(number.toString());
                     textView.setTextColor(Color.RED);
+
                 }
                 textView.setTextSize(18);
                 textView.setLayoutParams(new TableRow.LayoutParams(TableRow.LayoutParams.MATCH_PARENT, TableRow.LayoutParams.MATCH_PARENT,1.0f));

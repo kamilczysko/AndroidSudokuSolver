@@ -5,7 +5,6 @@ import android.app.Activity;
 import android.content.Intent;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.Log;
 import android.view.MotionEvent;
@@ -34,6 +33,12 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
 
@@ -45,6 +50,8 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
 
     private Button debugViewButton;
     private Button processButton;
+
+    private ExecutorService executorService;
 
     List<List<Rect>> sortedRects = Collections.emptyList();
 
@@ -110,6 +117,8 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
         });
 
         this.imgProc = new ImageProcessor(this);
+
+        executorService = Executors.newSingleThreadExecutor();
     }
 
     @Override
@@ -137,6 +146,7 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
     }
 
     boolean doitagain = true;
+
     @SuppressLint("NewApi")
     @Override
     public Mat onCameraFrame(CameraBridgeViewBase.CvCameraViewFrame inputFrame) {
@@ -249,25 +259,65 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
             Log.d(TAG, r);
     }
 
+//    private List<List<Integer>> getDigitalMap(List<List<Rect>> mapOfRects) {
+//        Mat map = new Mat();
+//        Mat original = getSelectedSudokuPlane(previousRawFrame.clone()).clone();
+//        Imgproc.cvtColor(original, map, Imgproc.COLOR_RGB2GRAY);
+//        Imgproc.threshold(map, map, 120, 255, Imgproc.THRESH_BINARY);
+//        List<List<Integer>> digitalMap = new ArrayList<>();
+//        for (List<Rect> row : mapOfRects) {
+//            ArrayList<Integer> singleRow = new ArrayList<>();
+//            for (Rect rect : row) {
+//                singleRow.add(getElementToRow(map, original, rect));
+//            }
+//            digitalMap.add(singleRow);
+//        }
+//
+//        return digitalMap;
+//    }
     private List<List<Integer>> getDigitalMap(List<List<Rect>> mapOfRects) {
         Mat map = new Mat();
         Mat original = getSelectedSudokuPlane(previousRawFrame.clone()).clone();
         Imgproc.cvtColor(original, map, Imgproc.COLOR_RGB2GRAY);
         Imgproc.threshold(map, map, 120, 255, Imgproc.THRESH_BINARY);
-        List<List<Integer>> digitalMap = new ArrayList<>();
+        List<List<Future<Integer>>> digitalMap = new ArrayList<>();
         for (List<Rect> row : mapOfRects) {
-            ArrayList<Integer> singleRow = new ArrayList<>();
+            ArrayList<Future<Integer>> singleRow = new ArrayList<>();
             for (Rect rect : row) {
-                if(isEmpty(map, rect))
-                    singleRow.add(0);
-                else {
-                    Mat resizedMat = getResizedMat(original.submat(rect));
-                    singleRow.add(imgProc.getNumberFromRegion(resizedMat.clone()));
-                }
+                Future<Integer> submit =
+                        executorService.submit(() -> getElementToRow(map, original, rect));
+                singleRow.add(submit);
             }
+
             digitalMap.add(singleRow);
         }
-        return digitalMap;
+        List<List<Integer>> resultList = new ArrayList<>();
+        for(List<Future<Integer>> row : digitalMap){
+            List<Integer> r = new ArrayList<>();
+            for (Future<Integer> elem : row){
+                try {
+                    Integer number = elem.get(20, TimeUnit.SECONDS);
+                    r.add(number);
+                } catch (ExecutionException e) {
+                    e.printStackTrace();
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                } catch (TimeoutException e) {
+                    e.printStackTrace();
+                }
+            }
+            resultList.add(r);
+        }
+        return resultList;
+    }
+
+    private Integer getElementToRow(Mat map, Mat original, Rect rect) {
+        if(isEmpty(map, rect))
+            return 0;
+        else {
+            Mat resizedMat = getResizedMat(original.submat(rect));
+            return imgProc.getNumberFromRegion(resizedMat.clone());
+        }
     }
 
     @RequiresApi(api = Build.VERSION_CODES.N)
@@ -368,6 +418,7 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
 
         if(isSudokuPlaneSelected && !debugView){
             isSudokuPlaneSelected = false;
+            return false;
         }
         if (!isSudokuPlaneSelected) {
             selectedSudokuPlane = getSelectedSudoku(x, y);

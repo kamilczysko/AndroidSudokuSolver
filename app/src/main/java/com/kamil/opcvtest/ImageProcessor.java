@@ -2,7 +2,6 @@ package com.kamil.opcvtest;
 
 import android.content.Context;
 import android.graphics.Bitmap;
-import android.util.Log;
 
 import com.googlecode.tesseract.android.TessBaseAPI;
 
@@ -29,8 +28,6 @@ public class ImageProcessor {
 
         File file = new File(tessData + "/end.traineddata");
         if (!file.exists()) {
-            Log.d("ABCD", "not exists");
-
             try {
                 InputStream in = context.getAssets().open("tessdata/eng.traineddata");
                 FileOutputStream fileOutputStream = new FileOutputStream(tessData + "/eng.traineddata");
@@ -63,9 +60,8 @@ public class ImageProcessor {
     private int getNumber(Bitmap bmp){
         tess.setImage(bmp);
         String utf8Text = tess.getUTF8Text();
-        Log.d("defg", "defg -- "+utf8Text);
         tess.end();
-        if(utf8Text.trim().equals("")) return 0; //not recognize ones :/
+        if(utf8Text.trim().equals("")) return 0; //not recognize eights :/
         return Integer.parseInt(utf8Text.trim().substring(utf8Text.length()-1));
     }
 }
