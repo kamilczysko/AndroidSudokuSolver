@@ -13,12 +13,12 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 
-public class ImageProcessor {
+public class TextRecognizeUtil {
 
     private TessBaseAPI tess;
     private Context context;
 
-    public ImageProcessor(Context context) {
+    public TextRecognizeUtil(Context context) {
         this.context = context;
 
         File tessData = context.getExternalFilesDir("/tessdata");
@@ -44,7 +44,7 @@ public class ImageProcessor {
         }
     }
 
-    public int getNumberFromRegion(Mat mat){
+    public int getNumberFromRegion(Mat mat) {
         tess = new TessBaseAPI();
         String path = context.getExternalFilesDir("/").getPath() + "/";
         tess.setDebug(false);
@@ -57,11 +57,11 @@ public class ImageProcessor {
         return getNumber(bmp);
     }
 
-    private int getNumber(Bitmap bmp){
+    private int getNumber(Bitmap bmp) {
         tess.setImage(bmp);
         String utf8Text = tess.getUTF8Text();
         tess.end();
-        if(utf8Text.trim().equals("")) return 8; //not recognize eights :/
-        return Integer.parseInt(utf8Text.trim().substring(utf8Text.length()-1));
+        if (utf8Text.trim().equals("")) return 8; //not recognize eights :/
+        return Integer.parseInt(utf8Text.trim().substring(utf8Text.length() - 1));
     }
 }

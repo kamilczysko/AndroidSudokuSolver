@@ -21,17 +21,14 @@ import org.opencv.android.LoaderCallbackInterface;
 import org.opencv.android.OpenCVLoader;
 import org.opencv.core.Core;
 import org.opencv.core.Mat;
-import org.opencv.core.MatOfPoint;
 import org.opencv.core.Point;
 import org.opencv.core.Rect;
 import org.opencv.core.Scalar;
-import org.opencv.core.Size;
 import org.opencv.imgproc.Imgproc;
 import org.parceler.Parcels;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -39,17 +36,11 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.stream.Collectors;
 
 
 public class MainActivity extends Activity implements CameraBridgeViewBase.CvCameraViewListener2, View.OnTouchListener {
 
     private static final String TAG = "MainActivity";
-    public static final double PERCENTAGE_OF_WHITE = 0.89;
-    public static final double SUBMAT_RESIZE_FACTOR = 0.07;
-
-    private Button debugViewButton;
-    private Button processButton;
 
     private ExecutorService executorService;
 
@@ -61,11 +52,13 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
 
     private CameraBridgeViewBase camera;
     private List<Rect> foundRects = new ArrayList();
-    private Rect selectedSudokuPlane = null;
+    private List<Rect> sudokuMapCells = new ArrayList();
+    private Rect selectedSudokuPlaneRect = null;
     private boolean isSudokuPlaneSelected = false;
-    private List<Rect> allCells;
     private Mat previousRawFrame;
-    private ImageProcessor imgProc;
+
+    private TextRecognizeUtil textRecognizationService;
+    private ImageProcessUtil imageProcessUtil;
 
     BaseLoaderCallback loader = new BaseLoaderCallback(this) {
         @Override
@@ -91,32 +84,30 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
     @RequiresApi(api = Build.VERSION_CODES.N)
     @Override
     public void onCreate(Bundle savedInstanceState) {
-        Log.i(TAG, "called onCreate");
         super.onCreate(savedInstanceState);
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+
         setContentView(R.layout.activity_main);
+
         OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION_3_0_0, this, loader);
 
         camera = findViewById(R.id.sudoku_camera_view);
         camera.setCameraPermissionGranted();
 
-        debugViewButton = findViewById(R.id.debugView);
+        Button debugViewButton = findViewById(R.id.debugView);
         debugViewButton.setOnClickListener(v -> debugView = !debugView);
 
-        processButton = findViewById(R.id.processButton);
+        Button processButton = findViewById(R.id.processButton);
         processButton.setOnClickListener(v -> {
-            List<List<Integer>> digitalMap = getDigitalMap(sortedRects);
-            printDigitalMap(digitalMap);
             Intent sudokuIntent = new Intent(this, SudokuActivity.class);
-
-            Parcelable wrap = Parcels.wrap(digitalMap);
+            Parcelable wrap = Parcels.wrap(getDigitalMap(sortedRects));
             sudokuIntent.putExtra("sudoku", wrap);
-
             startActivity(sudokuIntent);
         });
 
-        this.imgProc = new ImageProcessor(this);
+        this.textRecognizationService = new TextRecognizeUtil(this);
+        this.imageProcessUtil = new ImageProcessUtil();
 
         executorService = Executors.newSingleThreadExecutor();
     }
@@ -151,141 +142,73 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
     @Override
     public Mat onCameraFrame(CameraBridgeViewBase.CvCameraViewFrame inputFrame) {
         Mat originalRawInputImage = inputFrame.rgba();
-        Mat tmpRawFrame = originalRawInputImage.clone();
-        Mat cameraViewFrameToFirstProcess = originalRawInputImage.clone();
-
-        Imgproc.cvtColor(cameraViewFrameToFirstProcess, cameraViewFrameToFirstProcess, Imgproc.COLOR_RGB2GRAY);
-        Imgproc.threshold(cameraViewFrameToFirstProcess, cameraViewFrameToFirstProcess, 120, 255, Imgproc.THRESH_BINARY);
-
         if (isSudokuPlaneSelected) {
-            Mat highlightedCells = null;
-            if(debugView) {
-                highlightedCells = findSingleCells(getSelectedSudokuPlane(previousRawFrame), getSelectedSudokuPlane(previousRawFrame.clone()));
-            } else {
-                highlightedCells = findSingleCells(getSelectedSudokuPlane(previousRawFrame));
-            }
-
-            return highlightedCells;
+            Mat resizedSudokuPlane = imageProcessUtil.getSelectedSudokuPlane(previousRawFrame, selectedSudokuPlaneRect);
+            sudokuMapCells = imageProcessUtil.findCellsContoursFromSudokuPlane(resizedSudokuPlane);
+            sortedRects = imageProcessUtil.sortRects(sudokuMapCells);
+            return drawHighlightedCells(previousRawFrame, sortedRects, debugView);
         }
 
-        findSudokuPlanesContours(cameraViewFrameToFirstProcess, tmpRawFrame)
-                .forEach(sudokuPlaneBoudary ->
-                        getColorMaskForSingleSudokuPlane(sudokuPlaneBoudary, tmpRawFrame));
+        List<Rect> foundSudokuMaps = imageProcessUtil.findSudokuPlanesContours(originalRawInputImage.clone());
+        Mat matWithSelectedSudokuMaps = drawMaskOnFoundSudokuMaps(originalRawInputImage, foundSudokuMaps);
 
+        foundRects = new ArrayList<>(foundSudokuMaps);
         previousRawFrame = originalRawInputImage.clone();
-        return tmpRawFrame;
-    }
 
-    private void filterEmptyCells(int a) {
-        Log.d(TAG, "START");
-        Mat selectedSudokuPlaneToProcess = getSelectedSudokuPlane(previousRawFrame.clone());
-        Imgproc.cvtColor(selectedSudokuPlaneToProcess, selectedSudokuPlaneToProcess, Imgproc.COLOR_RGB2GRAY);
-        Imgproc.threshold(selectedSudokuPlaneToProcess, selectedSudokuPlaneToProcess, 120, 255, Imgproc.THRESH_BINARY);
-        for (Rect cell : allCells) {
-            Mat submat = selectedSudokuPlaneToProcess.submat(cell);
-            int nonZero = Core.countNonZero(submat);
-            long totalSize = submat.total();
-            double coef = (double) nonZero / (double) totalSize;
-            if (coef < PERCENTAGE_OF_WHITE) {
-                Log.d(TAG, nonZero + "-" + totalSize + " - " + coef);
-                a++;
-            }
-        }
-        Log.d(TAG, "--------"+a);
-    }
-
-    private boolean isEmpty(Mat selectedSudokuPlaneToProcess, Rect cell) {
-        Mat mat = getResizedMat(selectedSudokuPlaneToProcess.submat(cell), 0.005);
-        int nonZero = Core.countNonZero(mat);
-        long totalSize = mat.total();
-        double coef = (double) nonZero / (double) totalSize;
-        return coef > PERCENTAGE_OF_WHITE;
-    }
-
-    private Mat getResizedMat(Mat submat, double resizeFactor) {
-        int rowOffset = (int) (submat.rows() * resizeFactor);
-        int colOffset = (int) (submat.cols() * resizeFactor);
-        return submat.submat(rowOffset, submat.rows() - rowOffset * 2, colOffset, submat.cols() - colOffset * 2);
-    }
-
-    private Mat getResizedMat(Mat submat) {
-        int rowOffset = (int) (submat.rows() * SUBMAT_RESIZE_FACTOR);
-        int colOffset = (int) (submat.cols() * SUBMAT_RESIZE_FACTOR);
-        return submat.submat(rowOffset, submat.rows() - rowOffset * 2, colOffset, submat.cols() - colOffset * 2);
-    }
-
-    private Mat getSelectedSudokuPlane(Mat frameToSubstract) {
-        Mat originalSubmat = frameToSubstract.submat(selectedSudokuPlane).clone();
-        Imgproc.resize(originalSubmat, originalSubmat, getFrameSize(), 0, 0);
-        return originalSubmat;
-    }
-
-    private Size getFrameSize() {
-        return previousRawFrame.size();
-    }
-
-    private void getColorMaskForSingleSudokuPlane(Rect sudokuPlaneBoudary, Mat frame) {
-        Mat dummyMat = Mat.ones(frame.rows(), frame.cols(), frame.type());
-        Mat submat = dummyMat.submat(sudokuPlaneBoudary).clone();
-        submat.setTo(new Scalar(255, 0, 0));
-        submat.copyTo(frame.submat(sudokuPlaneBoudary), submat.clone());
+        return matWithSelectedSudokuMaps;
     }
 
     @RequiresApi(api = Build.VERSION_CODES.N)
-    private Mat findSingleCells(Mat sudokuPlane) {
-        allCells = findCellsContoursFromSudokuPlane(sudokuPlane);
+    private Mat drawMaskOnFoundSudokuMaps(Mat rawFrame, List<Rect> foundSudokuMaps) {
+        Mat resultMat = rawFrame.clone();
+        foundSudokuMaps.forEach(sudokuPlaneBoudary ->
+                drawColorMaskForSingleSudokuMap(sudokuPlaneBoudary, resultMat));
+        return resultMat;
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.N)
+    private Mat drawHighlightedCells(Mat previousFrame, List<List<Rect>> cellsContoursFromSudokuPlane, boolean debugView) {
+        Mat sudokuMat = imageProcessUtil.getSelectedSudokuPlane(previousFrame.clone(), selectedSudokuPlaneRect);
+        if (debugView) {
+            return drawSingleCells(cellsContoursFromSudokuPlane, imageProcessUtil.getThreshedImageFromCamera(sudokuMat));
+        }
+        return drawHighlightedCells(sudokuMat, cellsContoursFromSudokuPlane);
+    }
+
+    private void drawColorMaskForSingleSudokuMap(Rect sudokuPlaneBoudary, Mat rawImage) {
+        Mat dummyMat = Mat.ones(rawImage.rows(), rawImage.cols(), rawImage.type());
+        Mat submat = dummyMat.submat(sudokuPlaneBoudary).clone();
+        submat.setTo(new Scalar(255, 0, 0));
+        submat.copyTo(rawImage.submat(sudokuPlaneBoudary), submat.clone());
+        int x = sudokuPlaneBoudary.x;
+        int y = sudokuPlaneBoudary.y;
+        int width = sudokuPlaneBoudary.width;
+        int height = sudokuPlaneBoudary.height;
+        Imgproc.rectangle(rawImage, new Point(x, y), new Point(x + width, y + height), new Scalar(0, 0, 255), 3);
+        Imgproc.circle(rawImage, new Point(x + width / 2, y + height / 2), 3, new Scalar(0, 255, 255), 3);
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.N)
+    private Mat drawHighlightedCells(Mat sudokuPlane, List<List<Rect>> cells) {
         Mat resultMat = sudokuPlane.clone();
         int c = 0;
-
-        sortedRects = getSortedRects();
-
-        for(List<Rect> row : sortedRects){
+        for(List<Rect> row : cells){
             for(Rect rect : row){
                 Imgproc.rectangle(resultMat, new Point(rect.x, rect.y), new Point(rect.x + rect.width, rect.y + rect.height), new Scalar(0, 0, 255), 15);
-                Imgproc.putText(resultMat, (c) + "", new Point(rect.x + rect.width / 11.0, rect.y + rect.height / 3.0), 1, 1, new Scalar(255, 0, 255), 15);
-                c++;
+                Imgproc.putText(resultMat, (c++) + "", new Point(rect.x + rect.width / 11.0, rect.y + rect.height / 3.0), 1, 1, new Scalar(255, 0, 255), 15);
             }
         }
         return resultMat;
     }
 
-    @RequiresApi(api = Build.VERSION_CODES.N)
-    private void printDigitalMap(List<List<Integer>> map){
-        String r = "";
-        for(List<Integer> row: map){
-             r += row.stream().map(Object::toString).collect(Collectors.joining("-"));
-             r += "\n";
-        }
-            Log.d(TAG, r);
-    }
-
-//    private List<List<Integer>> getDigitalMap(List<List<Rect>> mapOfRects) {
-//        Mat map = new Mat();
-//        Mat original = getSelectedSudokuPlane(previousRawFrame.clone()).clone();
-//        Imgproc.cvtColor(original, map, Imgproc.COLOR_RGB2GRAY);
-//        Imgproc.threshold(map, map, 120, 255, Imgproc.THRESH_BINARY);
-//        List<List<Integer>> digitalMap = new ArrayList<>();
-//        for (List<Rect> row : mapOfRects) {
-//            ArrayList<Integer> singleRow = new ArrayList<>();
-//            for (Rect rect : row) {
-//                singleRow.add(getElementToRow(map, original, rect));
-//            }
-//            digitalMap.add(singleRow);
-//        }
-//
-//        return digitalMap;
-//    }
     private List<List<Integer>> getDigitalMap(List<List<Rect>> mapOfRects) {
-        Mat map = new Mat();
-        Mat original = getSelectedSudokuPlane(previousRawFrame.clone()).clone();
-        Imgproc.cvtColor(original, map, Imgproc.COLOR_RGB2GRAY);
-        Imgproc.threshold(map, map, 120, 255, Imgproc.THRESH_BINARY);
+        Mat original = imageProcessUtil.getSelectedSudokuPlane(previousRawFrame.clone(), selectedSudokuPlaneRect).clone();
         List<List<Future<Integer>>> digitalMap = new ArrayList<>();
         for (List<Rect> row : mapOfRects) {
             ArrayList<Future<Integer>> singleRow = new ArrayList<>();
             for (Rect rect : row) {
                 Future<Integer> submit =
-                        executorService.submit(() -> getElementToRow(map, original, rect));
+                        executorService.submit(() -> getElementToRow(original, rect));
                 singleRow.add(submit);
             }
 
@@ -298,11 +221,7 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
                 try {
                     Integer number = elem.get(20, TimeUnit.SECONDS);
                     r.add(number);
-                } catch (ExecutionException e) {
-                    e.printStackTrace();
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                } catch (TimeoutException e) {
+                } catch (ExecutionException | InterruptedException | TimeoutException e) {
                     e.printStackTrace();
                 }
             }
@@ -311,97 +230,37 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
         return resultList;
     }
 
-    private Integer getElementToRow(Mat map, Mat original, Rect rect) {
-        if(isEmpty(map, rect))
+    private Integer getElementToRow(Mat original, Rect cellRegion) {
+        if(imageProcessUtil.isEmpty(original, cellRegion))
             return 0;
         else {
-            Mat resizedMat = getResizedMat(original.submat(rect));
-            return imgProc.getNumberFromRegion(resizedMat.clone());
+            Mat resizedMat = imageProcessUtil.getCroppedMap(original.submat(cellRegion));
+            return textRecognizationService.getNumberFromRegion(resizedMat.clone());
         }
     }
 
-    @RequiresApi(api = Build.VERSION_CODES.N)
-    private List<List<Rect>> getSortedRects() {
-        List<Rect> firstSort = allCells.stream()
-                .sorted(Comparator.comparingInt(Rect::getY))
-                .collect(Collectors.toList());
-        int size = (int) Math.sqrt(allCells.size());
-        Log.d(TAG, allCells.size()+"--"+size);
-        List<List<Rect>> digitMap = new ArrayList<>();
-        for(int a = 0; a < size; a++){
-            int index = a * size;
-            digitMap.add(firstSort.subList(index, index+size).stream().sorted(Comparator.comparingInt(Rect::getX)).collect(Collectors.toList()));
+    private Mat drawSingleCells(List<List<Rect>> cells, Mat threshedImageFromCamera) {
+        for (List<Rect> row : cells) {
+            for (Rect rect : row) {
+                drawSingleCellSelected(threshedImageFromCamera, rect);
+            }
         }
-        return digitMap;
+        return threshedImageFromCamera;
     }
 
-    @RequiresApi(api = Build.VERSION_CODES.N)
-    private Mat findSingleCells(Mat sudokuPlane, Mat canvas) {
-
-        Imgproc.cvtColor(canvas, canvas, Imgproc.COLOR_RGB2GRAY);
-        Imgproc.threshold(canvas, canvas, 120, 255, Imgproc.THRESH_BINARY);
-
-        allCells = findCellsContoursFromSudokuPlane(sudokuPlane);
-        for (Rect rect : allCells) {
-            setCellActive(canvas, rect);
-        }
-        return canvas;
-    }
-
-    private void setCellActive(Mat threshedCanvas, Rect rect) {
-        Mat submat = threshedCanvas.submat(rect);
-        int nonZero = Core.countNonZero(submat);
-        long totalSize = submat.total();
-        double percentage = (double) nonZero / (double) totalSize;
-
+    void drawSingleCellSelected(Mat threshedCanvas, Rect rect) {
+        double percentage = getPercentage(threshedCanvas, rect);
         Imgproc.rectangle(threshedCanvas, new Point(rect.x, rect.y), new Point(rect.x + rect.width, rect.y + rect.height), new Scalar(0, 0, 255), 15);
-        if(percentage < PERCENTAGE_OF_WHITE) {
+        if(percentage < imageProcessUtil.PERCENTAGE_OF_WHITE) {
             Imgproc.putText(threshedCanvas, (String.format("%.2f", percentage)) , new Point(rect.x + rect.width / 11.0, rect.y + rect.height / 4.0), 1, 1, new Scalar(0, 0, 0), 5);
         }
     }
 
-    @RequiresApi(api = Build.VERSION_CODES.N)
-    private List<Rect> findCellsContoursFromSudokuPlane(Mat sudokuPlane) {
-        List<Rect> rects = new ArrayList<>();
-        Mat matToFindContours = new Mat();
-        Imgproc.cvtColor(sudokuPlane.clone(), matToFindContours, Imgproc.COLOR_RGB2GRAY);
-        Imgproc.blur(matToFindContours, matToFindContours, new Size(5, 5), new Point(), 0);
-        Imgproc.adaptiveThreshold(matToFindContours, matToFindContours, 255, Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C, Imgproc.THRESH_BINARY, 5, 2);
-        Core.bitwise_not(matToFindContours, matToFindContours);
-        Imgproc.dilate(matToFindContours, matToFindContours, Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(5, 5)), new Point(), 11);
-
-        List<MatOfPoint> contours = new ArrayList<MatOfPoint>();
-        Imgproc.findContours(matToFindContours, contours, new Mat(), Imgproc.RETR_TREE, Imgproc.CHAIN_APPROX_SIMPLE);
-        for (MatOfPoint contour : contours) {
-            if (Imgproc.contourArea(contour) > 2600 && Imgproc.contourArea(contour) < 40000) {
-                Rect rect = Imgproc.boundingRect(contour);
-                if (Math.abs(rect.height - rect.width) < 100) {
-                    rects.add(rect);
-                }
-            }
-        }
-        return rects;
-    }
-
-    private List<Rect> findSudokuPlanesContours(Mat input, Mat img) {
-        List<MatOfPoint> contours = new ArrayList<MatOfPoint>();
-        Imgproc.findContours(input, contours, new Mat(), Imgproc.RETR_LIST, Imgproc.CHAIN_APPROX_SIMPLE);
-        foundRects = new ArrayList();
-        for (MatOfPoint a : contours) {
-            if (Imgproc.contourArea(a) > 200) {
-                Rect rect = Imgproc.boundingRect(a);
-                int width = rect.width;
-                int height = rect.height;
-                if (height > 200 && width > 200 && height < 500 && width < 500) {
-                    foundRects.add(rect);
-                    int x = rect.x;
-                    int y = rect.y;
-                    Imgproc.rectangle(img, new Point(x, y), new Point(x + width, y + height), new Scalar(0, 0, 255), 3);
-                    Imgproc.circle(img, new Point(x + width / 2, y + height / 2), 3, new Scalar(0, 255, 255), 3);
-                }
-            }
-        }
-        return foundRects;
+    private double getPercentage(Mat threshedCanvas, Rect rect) {
+        Mat submat = threshedCanvas.submat(rect);
+        int nonZero = Core.countNonZero(submat);
+        long totalSize = submat.total();
+        return (double) nonZero / (double) totalSize;
     }
 
     @RequiresApi(api = Build.VERSION_CODES.N)
@@ -421,20 +280,16 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
             return false;
         }
         if (!isSudokuPlaneSelected) {
-            selectedSudokuPlane = getSelectedSudoku(x, y);
+            selectedSudokuPlaneRect = getSelectedSudoku(x, y);
             doitagain = true;
             isSudokuPlaneSelected = true;
-
+            return false;
         }
 
         if(debugView){
-            for(Rect cell : allCells){
+            for(Rect cell : sudokuMapCells){
                 if(isTouched(cell, x,y)){
-                    Log.d(TAG, "is Touched ");
-                    Mat mat = previousRawFrame.clone();
-                    Imgproc.cvtColor(mat, mat, Imgproc.COLOR_RGB2GRAY);
-                    Imgproc.threshold(mat, mat, 120, 255, Imgproc.THRESH_BINARY);
-                    setCellActive(mat, cell);
+                    //todo se selectable cells
                     return false;
                 }
             }
