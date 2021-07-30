@@ -1,4 +1,4 @@
-package com.kamil.opcvtest;
+package com.kamil.opcvtest.utils;
 
 import android.content.Context;
 import android.graphics.Bitmap;
@@ -13,12 +13,12 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 
-public class TextRecognizeUtil {
+public class TextRecognizationUtil {
 
     private TessBaseAPI tess;
     private Context context;
 
-    public TextRecognizeUtil(Context context) {
+    public TextRecognizationUtil(Context context) {
         this.context = context;
 
         File tessData = context.getExternalFilesDir("/tessdata");

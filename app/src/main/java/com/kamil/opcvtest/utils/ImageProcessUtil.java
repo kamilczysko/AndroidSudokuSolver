@@ -1,4 +1,4 @@
-package com.kamil.opcvtest;
+package com.kamil.opcvtest.utils;
 
 import android.os.Build;
 
@@ -24,7 +24,7 @@ public class ImageProcessUtil {
 
 
     @RequiresApi(api = Build.VERSION_CODES.N)
-    List<Rect> findCellsContoursFromSudokuPlane(Mat sudokuPlane) {
+    public List<Rect> findCellsContoursFromSudokuPlane(Mat sudokuPlane) {
         List<Rect> rects = new ArrayList<>();
         Mat matToFindContours = new Mat();
         Imgproc.cvtColor(sudokuPlane.clone(), matToFindContours, Imgproc.COLOR_RGB2GRAY);
@@ -46,7 +46,7 @@ public class ImageProcessUtil {
         return rects;
     }
 
-    List<Rect> findSudokuPlanesContours(Mat rawImage) {
+    public List<Rect> findSudokuPlanesContours(Mat rawImage) {
         Mat cameraViewFrameToFirstProcess = getThreshedImageFromCamera(rawImage);
         List<MatOfPoint> contours = new ArrayList<MatOfPoint>();
         Imgproc.findContours(cameraViewFrameToFirstProcess, contours, new Mat(), Imgproc.RETR_LIST, Imgproc.CHAIN_APPROX_SIMPLE);
@@ -64,7 +64,7 @@ public class ImageProcessUtil {
         return foundRects;
     }
 
-    Mat getThreshedImageFromCamera(Mat originalRawInputImage) {
+    public Mat getThreshedImageFromCamera(Mat originalRawInputImage) {
         Mat cameraViewFrameToFirstProcess = originalRawInputImage.clone();
         Imgproc.cvtColor(cameraViewFrameToFirstProcess, cameraViewFrameToFirstProcess, Imgproc.COLOR_RGB2GRAY);
         Imgproc.threshold(cameraViewFrameToFirstProcess, cameraViewFrameToFirstProcess, 120, 255, Imgproc.THRESH_BINARY);
@@ -72,22 +72,44 @@ public class ImageProcessUtil {
     }
 
     @RequiresApi(api = Build.VERSION_CODES.N)
-    List<List<Rect>> sortRects(List<Rect> cells) {
-        List<Rect> firstSort = cells.stream()
-                .sorted(Comparator.comparingInt(Rect::getY))
-                .collect(Collectors.toList());
+    public List<List<Rect>> sortRects(List<Rect> cells) {
+        List<Rect> sortedByY = getSortedRectsByY(cells);
+
         int size = (int) Math.sqrt(cells.size());
+
         List<List<Rect>> digitMap = new ArrayList<>();
-        for(int a = 0; a < size; a++){
+        for (int a = 0; a < size; a++) {
             int index = a * size;
-            digitMap.add(firstSort.subList(index, index+size).stream().sorted(Comparator.comparingInt(Rect::getX)).collect(Collectors.toList()));
+            digitMap.add(getSortedRectsByX(sortedByY.subList(index, index + size)));
         }
         return digitMap;
     }
 
-    boolean isEmpty(Mat selectedSudokuPlaneToProcess, Rect cell) {
+    @RequiresApi(api = Build.VERSION_CODES.N)
+    private List<Rect> getSortedRectsByX(List<Rect> rects) {
+        return rects.stream()
+                .sorted(Comparator.comparingInt(Rect::getX))
+                .collect(Collectors.toList());
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.N)
+    private List<Rect> getSortedRectsByY(List<Rect> cells) {
+        return cells.stream()
+                .sorted(Comparator.comparingInt(Rect::getY))
+                .collect(Collectors.toList());
+    }
+
+    public boolean isEmpty(Mat selectedSudokuPlaneToProcess, Rect cell) {
         Mat croppedMat = getCroppedMap(selectedSudokuPlaneToProcess.submat(cell), 0.005);
         Mat mat = getThreshedImageFromCamera(croppedMat);
+        int nonZero = Core.countNonZero(mat);
+        long totalSize = mat.total();
+        double coef = (double) nonZero / (double) totalSize;
+        return coef > PERCENTAGE_OF_WHITE;
+    }
+
+    public boolean isEmptyWithoutThreshold(Mat threshedSudokuPlane, Rect cellRoi) {
+        Mat mat = getCroppedMap(threshedSudokuPlane.submat(cellRoi), 0.005);
         int nonZero = Core.countNonZero(mat);
         long totalSize = mat.total();
         double coef = (double) nonZero / (double) totalSize;
@@ -100,13 +122,13 @@ public class ImageProcessUtil {
         return submat.submat(rowOffset, submat.rows() - rowOffset * 2, colOffset, submat.cols() - colOffset * 2);
     }
 
-    Mat getCroppedMap(Mat submat) {
+    public Mat getCroppedMap(Mat submat) {
         int rowOffset = (int) (submat.rows() * SUBMAT_RESIZE_FACTOR);
         int colOffset = (int) (submat.cols() * SUBMAT_RESIZE_FACTOR);
         return submat.submat(rowOffset, submat.rows() - rowOffset * 2, colOffset, submat.cols() - colOffset * 2);
     }
 
-    Mat getSelectedSudokuPlane(Mat frameToSubstract, Rect mapRect) {
+    public Mat getSelectedSudokuPlane(Mat frameToSubstract, Rect mapRect) {
         Mat originalSubmat = frameToSubstract.submat(mapRect).clone();
         Imgproc.resize(originalSubmat, originalSubmat, frameToSubstract.size(), 0, 0);
         return originalSubmat;

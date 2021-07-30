@@ -15,6 +15,8 @@ import android.widget.Button;
 
 import androidx.annotation.RequiresApi;
 
+import com.kamil.opcvtest.utils.ImageProcessUtil;
+
 import org.opencv.android.BaseLoaderCallback;
 import org.opencv.android.CameraBridgeViewBase;
 import org.opencv.android.LoaderCallbackInterface;
@@ -30,22 +32,11 @@ import org.parceler.Parcels;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 
 
 public class MainActivity extends Activity implements CameraBridgeViewBase.CvCameraViewListener2, View.OnTouchListener {
 
     private static final String TAG = "MainActivity";
-
-    private ExecutorService executorService;
-
-    List<List<Rect>> sortedRects = Collections.emptyList();
-    List<List<RectWrapper>> sortedRectWrappers = Collections.emptyList();
 
     public MainActivity() {
         Log.i(TAG, "Instantiated new " + this.getClass());
@@ -58,10 +49,11 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
     private boolean isSudokuPlaneSelected = false;
     private Mat previousRawFrame;
 
-    private TextRecognizeUtil textRecognizationService;
     private ImageProcessUtil imageProcessUtil;
 
     static int TOP_HEIGHT = 0;
+
+    private ImageProcessor imageProcessor;
 
     BaseLoaderCallback loader = new BaseLoaderCallback(this) {
         @Override
@@ -93,28 +85,31 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
 
         setContentView(R.layout.activity_main);
 
-        OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION_3_0_0, this, loader);
-
-        camera = findViewById(R.id.sudoku_camera_view);
-        camera.setCameraPermissionGranted();
+        initOpenCV();
 
         Button debugViewButton = findViewById(R.id.debugView);
         debugViewButton.setOnClickListener(v -> debugView = !debugView);
 
         Button processButton = findViewById(R.id.processButton);
-        processButton.setOnClickListener(v -> {
-            Intent sudokuIntent = new Intent(this, SudokuActivity.class);
-            Parcelable wrap = Parcels.wrap(getDigitalMap(sortedRectWrappers));
-            sudokuIntent.putExtra("sudoku", wrap);
-            startActivity(sudokuIntent);
-        });
+        processButton.setOnClickListener(v -> processCapturedMap());
 
         TOP_HEIGHT = processButton.getHeight();
 
-        this.textRecognizationService = new TextRecognizeUtil(this);
         this.imageProcessUtil = new ImageProcessUtil();
+    }
 
-        executorService = Executors.newSingleThreadExecutor();
+    private void processCapturedMap() {
+        Intent sudokuIntent = new Intent(this, SudokuActivity.class);
+        Parcelable wrap = Parcels.wrap(imageProcessor.getDigitalizedMap());
+        sudokuIntent.putExtra("sudoku", wrap);
+        startActivity(sudokuIntent);
+    }
+
+    private void initOpenCV() {
+        OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION_3_0_0, this, loader);
+
+        camera = findViewById(R.id.sudoku_camera_view);
+        camera.setCameraPermissionGranted();
     }
 
     @Override
@@ -148,11 +143,9 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
         if (isSudokuPlaneSelected) {
             Mat resizedSudokuPlane = imageProcessUtil.getSelectedSudokuPlane(previousRawFrame, selectedSudokuPlaneRect);
             if (sudokuMapCells.isEmpty()) {
-                sudokuMapCells = imageProcessUtil.findCellsContoursFromSudokuPlane(resizedSudokuPlane);
-                sortedRects = imageProcessUtil.sortRects(sudokuMapCells);
-                sortedRectWrappers = getCellsWrappers(resizedSudokuPlane);
+                imageProcessor = new ImageProcessor(resizedSudokuPlane, this);
             }
-            return drawHighlightedCells(previousRawFrame, sortedRects, debugView);
+            return drawHighlightedCells(debugView);
         }
 
         List<Rect> foundSudokuMaps = imageProcessUtil.findSudokuPlanesContours(originalRawInputImage.clone());
@@ -164,22 +157,6 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
         return matWithSelectedSudokuMaps;
     }
 
-    private List<List<RectWrapper>> getCellsWrappers(Mat resizedSudokuPlane) {
-        List<List<RectWrapper>> list = new ArrayList<>();
-        for (List<Rect> row : sortedRects) {
-            List<RectWrapper> wrapperRow = new ArrayList<>();
-            for (Rect r : row) {
-                if(imageProcessUtil.isEmpty(resizedSudokuPlane, r)){
-                    wrapperRow.add(new RectWrapper(r, false));
-                }else {
-                    wrapperRow.add(new RectWrapper(r, true));
-                }
-            }
-            list.add(wrapperRow);
-        }
-        return list;
-    }
-
     @RequiresApi(api = Build.VERSION_CODES.N)
     private Mat drawMaskOnFoundSudokuMaps(Mat rawFrame, List<Rect> foundSudokuMaps) {
         Mat resultMat = rawFrame.clone();
@@ -189,12 +166,11 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
     }
 
     @RequiresApi(api = Build.VERSION_CODES.N)
-    private Mat drawHighlightedCells(Mat previousFrame, List<List<Rect>> cellsContoursFromSudokuPlane, boolean debugView) {
-        Mat sudokuMat = imageProcessUtil.getSelectedSudokuPlane(previousFrame.clone(), selectedSudokuPlaneRect);
+    private Mat drawHighlightedCells(boolean debugView) {
         if (debugView) {
-            return drawSingleCellsDebug(sortedRectWrappers, imageProcessUtil.getThreshedImageFromCamera(sudokuMat));
+            return drawSingleCellsDebug(imageProcessor.getSortedSudokuCellsWrappers(), imageProcessor.getSudokuThreshedMap());
         }
-        return drawHighlightedCells(sudokuMat, cellsContoursFromSudokuPlane);
+        return drawHighlightedCells(imageProcessor.getSudoku(), imageProcessor.getSortedSudokuCells());
     }
 
     private void drawColorMaskForSingleSudokuMap(Rect sudokuPlaneBoudary, Mat rawImage) {
@@ -221,42 +197,6 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
             }
         }
         return resultMat;
-    }
-
-    private List<List<Integer>> getDigitalMap(List<List<RectWrapper>> mapOfRects) {
-        Mat original = imageProcessUtil.getSelectedSudokuPlane(previousRawFrame.clone(), selectedSudokuPlaneRect).clone();
-        List<List<Future<Integer>>> digitalMap = new ArrayList<>();
-        for (List<RectWrapper> row : mapOfRects) {
-            ArrayList<Future<Integer>> singleRow = new ArrayList<>();
-            for (RectWrapper rect : row) {
-                Future<Integer> submit =
-                        executorService.submit(() -> getElementToRow(original, rect));
-                singleRow.add(submit);
-            }
-            digitalMap.add(singleRow);
-        }
-
-        List<List<Integer>> resultList = new ArrayList<>();
-        for(List<Future<Integer>> row : digitalMap){
-            List<Integer> r = new ArrayList<>();
-            for (Future<Integer> elem : row){
-                try {
-                    Integer number = elem.get(20, TimeUnit.SECONDS);
-                    r.add(number);
-                } catch (ExecutionException | InterruptedException | TimeoutException e) {
-                    e.printStackTrace();
-                }
-            }
-            resultList.add(r);
-        }
-        return resultList;
-    }
-
-    private Integer getElementToRow(Mat original, RectWrapper cellRegion) {
-        if (!cellRegion.isNumber())
-            return 0;
-        Mat resizedMat = imageProcessUtil.getCroppedMap(original.submat(cellRegion.getRect()));
-        return textRecognizationService.getNumberFromRegion(resizedMat.clone());
     }
 
     private Mat drawSingleCellsDebug(List<List<RectWrapper>> cells, Mat threshedImageFromCamera) {
@@ -308,7 +248,7 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
         }
 
         if(debugView){
-            for(List<RectWrapper> row : sortedRectWrappers){
+            for(List<RectWrapper> row : imageProcessor.getSortedSudokuCellsWrappers()){
                    for(RectWrapper rect : row){
                        if(rect.isTouched(x, y)){
                            rect.toggleIsNumber();

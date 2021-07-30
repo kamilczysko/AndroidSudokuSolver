@@ -6,13 +6,21 @@ public class RectWrapper {
 
     private Rect rect;
     private boolean isNumber = false;
+    private Integer number;
 
     public RectWrapper(Rect rect, boolean isNumber){
         this.rect = rect;
         this.isNumber = isNumber;
     }
 
-    private RectWrapper(){
+    private RectWrapper(){ }
+
+    public void setNumber(Integer number) {
+        this.number = number;
+    }
+
+    public Integer getNumber() {
+        return number;
     }
 
     public Rect getRect(){
