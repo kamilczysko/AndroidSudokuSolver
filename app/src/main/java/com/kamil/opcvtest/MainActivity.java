@@ -30,7 +30,6 @@ import org.opencv.imgproc.Imgproc;
 import org.parceler.Parcels;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
 
@@ -44,7 +43,6 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
 
     private CameraBridgeViewBase camera;
     private List<Rect> foundRects = new ArrayList();
-    private List<Rect> sudokuMapCells = new ArrayList();
     private Rect selectedSudokuPlaneRect = null;
     private boolean isSudokuPlaneSelected = false;
     private Mat previousRawFrame;
@@ -142,19 +140,49 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
         Mat originalRawInputImage = inputFrame.rgba();
         if (isSudokuPlaneSelected) {
             Mat resizedSudokuPlane = imageProcessUtil.getSelectedSudokuPlane(previousRawFrame, selectedSudokuPlaneRect);
-            if (sudokuMapCells.isEmpty()) {
+            if (imageProcessor == null) {
                 imageProcessor = new ImageProcessor(resizedSudokuPlane, this);
             }
             return drawHighlightedCells(debugView);
         }
 
         List<Rect> foundSudokuMaps = imageProcessUtil.findSudokuPlanesContours(originalRawInputImage.clone());
-        Mat matWithSelectedSudokuMaps = drawMaskOnFoundSudokuMaps(originalRawInputImage, foundSudokuMaps);
+        Mat matWithRanges = drawRange(originalRawInputImage);
+        Mat matWithSelectedSudokuMaps = drawMaskOnFoundSudokuMaps(matWithRanges, foundSudokuMaps);
 
         foundRects = new ArrayList<>(foundSudokuMaps);
         previousRawFrame = originalRawInputImage.clone();
 
         return matWithSelectedSudokuMaps;
+    }
+
+    private Mat drawRange(Mat mat){
+        Mat res = mat.clone();
+        int x = (int)(camera.getWidth() * 0.07);
+        int y = (int)(camera.getHeight() * 0.04);
+
+        int x1 = (int)(camera.getWidth() * 0.41);
+        int y1 = (int)(camera.getHeight() * 0.04);
+
+        int x2 = (int)(camera.getWidth() * 0.07);
+        int y2 = (int)(camera.getHeight() * 0.81);
+
+        int x3 = (int)(camera.getWidth() * 0.41);
+        int y3 = (int)(camera.getHeight() * 0.81);
+
+        Imgproc.line(res, new Point(x, y), new Point(x + 100, y), new Scalar(0, 255, 255), 3);
+        Imgproc.line(res, new Point(x, y), new Point(x, y + 100), new Scalar(0, 255, 255), 3);
+
+        Imgproc.line(res, new Point(x1, y1), new Point(x1 - 100, y1), new Scalar(0, 255, 255), 3);
+        Imgproc.line(res, new Point(x1, y1), new Point(x1, y1 + 100), new Scalar(0, 255, 255), 3);
+
+        Imgproc.line(res, new Point(x2, y2), new Point(x2 + 100, y2), new Scalar(0, 255, 255), 3);
+        Imgproc.line(res, new Point(x2, y2), new Point(x2, y2 - 100), new Scalar(0, 255, 255), 3);
+
+        Imgproc.line(res, new Point(x3, y3), new Point(x3 - 100, y3), new Scalar(0, 255, 255), 3);
+        Imgproc.line(res, new Point(x3, y3), new Point(x3, y3 - 100), new Scalar(0, 255, 255), 3);
+
+        return res;
     }
 
     @RequiresApi(api = Build.VERSION_CODES.N)
@@ -168,7 +196,7 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
     @RequiresApi(api = Build.VERSION_CODES.N)
     private Mat drawHighlightedCells(boolean debugView) {
         if (debugView) {
-            return drawSingleCellsDebug(imageProcessor.getSortedSudokuCellsWrappers(), imageProcessor.getSudokuThreshedMap());
+            return drawSingleCellsDebug(imageProcessor.getSortedSudokuCellsWrappers(), imageProcessor.getSudokuThreshedMap().clone());
         }
         return drawHighlightedCells(imageProcessor.getSudoku(), imageProcessor.getSortedSudokuCells());
     }
@@ -227,23 +255,23 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
     @RequiresApi(api = Build.VERSION_CODES.N)
     @Override
     public boolean onTouch(View v, MotionEvent event) {
-        int cols = previousRawFrame.cols();
-        int rows = previousRawFrame.rows();
-
-        int xOffset = (camera.getWidth() - cols) / 2;
-        int yOffset = (camera.getHeight() - rows) / 2;
+        int xOffset = getCameraXOffset();
+        int yOffset = getCameraYOffset();
 
         int x = (int) event.getX() - xOffset;
         int y = (int) event.getY() - yOffset + TOP_HEIGHT;
 
-        if(isSudokuPlaneSelected && !debugView){
+        if (isSudokuPlaneSelected && !debugView) {
             isSudokuPlaneSelected = false;
-            sudokuMapCells = Collections.emptyList();
+            imageProcessor = null;
             return false;
         }
+
         if (!isSudokuPlaneSelected) {
-            selectedSudokuPlaneRect = getSelectedSudoku(x, y);
-            isSudokuPlaneSelected = true;
+            if(foundRects.size() == 1){
+                selectedSudokuPlaneRect = foundRects.get(0);
+                isSudokuPlaneSelected = true;
+            }
             return false;
         }
 
@@ -251,7 +279,10 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
             for(List<RectWrapper> row : imageProcessor.getSortedSudokuCellsWrappers()){
                    for(RectWrapper rect : row){
                        if(rect.isTouched(x, y)){
+                           Log.d(TAG, "before: "+rect.isNumber() );
                            rect.toggleIsNumber();
+                           Log.d(TAG, "after: "+rect.isNumber() );
+                           Log.d(TAG, "-------- ");
                        }
                    }
             }
@@ -259,15 +290,13 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
         return false;
     }
 
-    @RequiresApi(api = Build.VERSION_CODES.N)
-    private Rect getSelectedSudoku(int x, int y) {
-        return foundRects.stream()
-                .filter(rect -> isTouched(rect, x, y))
-                .findFirst()
-                .orElse(null);
+    private int getCameraYOffset() {
+        int rows = previousRawFrame.rows();
+        return (camera.getHeight() - rows) / 2;
     }
 
-    private boolean isTouched(Rect rect, int x, int y) {
-        return (x > rect.x && x < rect.x + rect.width) && (y > rect.y && y < rect.y + rect.height);
+    private int getCameraXOffset() {
+        int cols = previousRawFrame.cols();
+        return (camera.getWidth() - cols) / 2;
     }
 }
